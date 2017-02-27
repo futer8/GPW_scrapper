@@ -11,6 +11,7 @@ class HTMLReader:
         self._config = {'Search keyword': '', 'Date separator': ''}
         self._html = bs('', 'html.parser')
         self._html_text = ''
+        self._data = []
         try:
             fh = open(config_path, 'r')
             lines = fh.readlines()
@@ -73,3 +74,44 @@ class HTMLReader:
             return data_date
         else:
             raise ValueError('Problem with date - year should be at least 2017!')
+
+    def IsLayoutOK(self, html_pattern_file):
+        try:
+            fh = open(html_pattern_file, 'r')
+            pattern = fh.read().strip()
+            fh.close()
+        except FileNotFoundError:
+            raise FileNotFoundError('HTML pattern file ' + html_pattern_file + ' not found!')
+        return pattern in self._html_text
+
+    def ReadData(self):
+        tr = self._html.table.find('tr')
+        field_cnt = 0
+        max_field_cnt = 23
+        add_fields = False
+        while tr:
+            td = tr.find('td')
+            if td:
+                a = td.find('a')
+                if a:
+                    add_fields = True
+                    href = list(filter(None, a['href'].split('/')))[-1]
+                    self._data.append([href])
+                    field_cnt = 1
+                    td = td.find_next_sibling('td')
+            while td:
+                if add_fields:
+                    item = td.text
+                    item = item.replace('\xa0', '').replace(',', '.')
+                    self._data[len(self._data) - 1].append(item)
+                    field_cnt += 1
+                    if field_cnt == max_field_cnt:
+                        add_fields = False
+                        field_cnt = 0
+                        break
+            
+                td = td.find_next_sibling('td')
+            tr = tr.find_next_sibling('tr')
+        
+        print (self._data[0])
+        print (self._data[len(self._data)-1])
