@@ -8,7 +8,7 @@ import datetime
 class HTMLReader:
 
     def __init__(self, config_path):
-        self._config = {'Search keyword': '', 'Date separator': ''}
+        self._config = {'Search keyword': None, 'Date separator': None, 'Table headers': None}
         self._html = bs('', 'html.parser')
         self._html_text = ''
         self._data = []
@@ -27,14 +27,16 @@ class HTMLReader:
         try:
             for line in lines:
                 split_line = [item.strip() for item in line.split(':')]
-                if len(split_line) == 2 and split_line[0] in self._config:
-                    key = split_line[0]
-                    value = split_line[1]
-                    if self._config[key] == '':
-                        self._config[key] = value
-                        config_update_count += 1
-                    else:
-                        raise RuntimeError(error_msg)
+                if len(split_line) == 2:
+                    if split_line[0] in self._config:
+                        key = split_line[0]
+                        value = split_line[1]
+                        if key == 'Table headers': value = [val.strip() for val in value.split(',')]
+                        if self._config[key] == None:
+                            self._config[key] = value
+                            config_update_count += 1
+                        else:
+                            raise RuntimeError(error_msg)
                 else:
                     raise RuntimeError(error_msg)
         except:
@@ -63,15 +65,15 @@ class HTMLReader:
         except FileNotFoundError:
             raise FileNotFoundError('Date stamp regex pattern file ' + regex_pattern_file + ' not found!')
         try:
-            data_date = re.search(pattern, self._html_text)
-            data_date = data_date.group()
-            data_date = data_date.split(self._config['Date separator'])
-            data_date = datetime.date(int(data_date[2]), int(data_date[1]), int(data_date[0]))
+            html_date = re.search(pattern, self._html_text)
+            html_date = html_date.group()
+            html_date = html_date.split(self._config['Date separator'])
+            html_date = datetime.date(int(html_date[2]), int(html_date[1]), int(html_date[0]))
         except AttributeError:
             raise AttributeError('Date pattern not found in the text!')
 
-        if data_date.year >= 2017: # This program has been written in 2017. (Semi) live feeds should be from at least 2017.
-            return data_date
+        if html_date.year >= 2017: # This program has been written in 2017. (Semi) live feeds should be from at least 2017.
+            return html_date
         else:
             raise ValueError('Problem with date - year should be at least 2017!')
 
@@ -84,34 +86,51 @@ class HTMLReader:
             raise FileNotFoundError('HTML pattern file ' + html_pattern_file + ' not found!')
         return pattern in self._html_text
 
-    def ReadData(self):
+    def ReadData(self, regex_date_pattern_file = None, html_pattern_file = None):
+        if html_pattern_file:
+            if not self.IsLayoutOK(html_pattern_file):
+                raise RuntimeError('HTML pattern check failed')
+        
+        additional_columns = 1
+        html_date = None
+        if regex_date_pattern_file:
+            html_date = self.GetDate(regex_date_pattern_file).__str__()
+            additional_columns += 1
+
+        timestamp = datetime.datetime.now().__str__()
+
         tr = self._html.table.find('tr')
-        field_cnt = 0
-        max_field_cnt = 23
-        add_fields = False
+        max_field_cnt = len(self._config['Table headers']) - additional_columns
         while tr:
+            field_cnt = 0
             td = tr.find('td')
             if td:
                 a = td.find('a')
                 if a:
-                    add_fields = True
+                    field_cnt = 2
+                    self._data.append([timestamp])
+                    if html_date:
+                        self._data[len(self._data) - 1].append(html_date)
+                        field_cnt = 3
                     href = list(filter(None, a['href'].split('/')))[-1]
-                    self._data.append([href])
+                    self._data[len(self._data) - 1].append(href)
                     field_cnt = 1
                     td = td.find_next_sibling('td')
+                else:
+                    break
             while td:
-                if add_fields:
-                    item = td.text
-                    item = item.replace('\xa0', '').replace(',', '.')
-                    self._data[len(self._data) - 1].append(item)
-                    field_cnt += 1
-                    if field_cnt == max_field_cnt:
-                        add_fields = False
-                        field_cnt = 0
-                        break
-            
+                item = td.text
+                item = item.replace('\xa0', '').replace(',', '.')
+                self._data[len(self._data) - 1].append(item)
+                field_cnt += 1
+ 
+                if field_cnt == max_field_cnt:
+                    break
+           
                 td = td.find_next_sibling('td')
+                if not td and field_cnt != max_field_cnt :
+                    raise ValueError('Problem with the table layout: number of columns does not match the expected value!')
+                   
             tr = tr.find_next_sibling('tr')
-        
         print (self._data[0])
-        print (self._data[len(self._data)-1])
+        print (self._data[len(self._data) - 1])
